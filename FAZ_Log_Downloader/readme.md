@@ -23,11 +23,12 @@ Before running the script, update the configuration variables inside faz_log_dow
 To run the script, use:
 - python faz_log_downloader.py
 
-The script connects to the FortiAnalyzer API, authenticates using the provided credentials, sends a log query request, retrieves logs (handling batching if necessary), and saves the output locally.
+- The script connects to the FortiAnalyzer API, authenticates using the provided credentials, sends a log query request, retrieves logs (handling batching if necessary), and saves the output locally.
+- Ensure that API access is enabled on your FortiAnalyzer device and that the user account being used has sufficient permissions to access logs. Large log queries may take time to process and may require pagination adjustments depending on the volume of data.
+- The script can be customized to include filters such as time range, source, destination, or specific log types. Output formats can also be adjusted to CSV, JSON, or other preferred structures. 
 
-Ensure that API access is enabled on your FortiAnalyzer device and that the user account being used has sufficient permissions to access logs. Large log queries may take time to process and may require pagination adjustments depending on the volume of data.
-
-The script can be customized to include filters such as time range, source, destination, or specific log types. Output formats can also be adjusted to CSV, JSON, or other preferred structures. 
+## Security Note
+This script is configured with `verify=False` to accommodate internal environments with self-signed certificates. In production environments, it is recommended to use valid CA-signed certificates and enable SSL verification.
 
 ## Notes
 Contributions are welcome. You can fork the repository, make improvements, and submit pull requests.
