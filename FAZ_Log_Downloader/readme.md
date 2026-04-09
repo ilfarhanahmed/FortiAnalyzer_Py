@@ -21,7 +21,7 @@ Before running the script, update the configuration variables inside faz_log_dow
 - PASSWORD = "your_password"
 
 To run the script, use:
-python faz_log_downloader.py
+- python faz_log_downloader.py
 
 The script connects to the FortiAnalyzer API, authenticates using the provided credentials, sends a log query request, retrieves logs (handling batching if necessary), and saves the output locally.
 
