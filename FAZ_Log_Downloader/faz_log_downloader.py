@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 FAZ Log Downloader
 Logs into FortiAnalyzer, lets you pick ADOM, device and date range,
