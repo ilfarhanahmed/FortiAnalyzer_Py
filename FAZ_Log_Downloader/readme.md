@@ -16,9 +16,9 @@ pip install requests
 
 ## Usage
 Before running the script, update the configuration variables inside faz_log_downloader.py such as:
-FAZ_IP = "your_fortianalyzer_ip"
-USERNAME = "your_username"
-PASSWORD = "your_password"
+- FAZ_IP = "your_fortianalyzer_ip"
+- USERNAME = "your_username"
+- PASSWORD = "your_password"
 
 To run the script, use:
 python faz_log_downloader.py
