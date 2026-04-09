@@ -2,14 +2,22 @@
 
 A Python-based utility to download logs from FortiAnalyzer using its API. This script simplifies log extraction for analysis, auditing, and reporting purposes. It connects to the FortiAnalyzer system, authenticates using user credentials, retrieves logs based on defined parameters, and stores them locally for further use.
 
-Project structure:
+## Project Structure
 FAZ_Log_Downloader/
 │── faz_log_downloader.py   (Main script)
 │── README.md               (Documentation)
 
-Requirements include Python 3.x and the requests library. You can install dependencies using:
+## Requirements
+
+- Python 3.x  
+- `requests` library  
+
+Install dependencies:
+
+```bash
 pip install requests
 
+## Usage
 Before running the script, update the configuration variables inside faz_log_downloader.py such as:
 FAZ_IP = "your_fortianalyzer_ip"
 USERNAME = "your_username"
@@ -24,7 +32,7 @@ Ensure that API access is enabled on your FortiAnalyzer device and that the user
 
 The script can be customized to include filters such as time range, source, destination, or specific log types. Output formats can also be adjusted to CSV, JSON, or other preferred structures. 
 
-
+## Notes
 Contributions are welcome. You can fork the repository, make improvements, and submit pull requests.
 
 Author: Farhan Ahmed
