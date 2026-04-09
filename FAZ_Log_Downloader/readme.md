@@ -4,8 +4,8 @@ A Python-based utility to download logs from FortiAnalyzer using its API. This s
 
 ## Project Structure
 FAZ_Log_Downloader/
-│── faz_log_downloader.py   (Main script)
-│── README.md               (Documentation)
+<br>│── faz_log_downloader.py   (Main script)
+<br>│── README.md               (Documentation)
 
 ## Requirements
 
