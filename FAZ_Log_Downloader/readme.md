@@ -12,7 +12,6 @@ FAZ_Log_Downloader/
 - Python 3.x  
 - `requests` library  
 
-```bash
 pip install requests
 
 ## Usage
