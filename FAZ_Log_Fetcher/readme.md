@@ -30,13 +30,14 @@ A high-reliability Python utility designed for forensic-grade log retrieval from
 
 When prompted in **Step 5**, you can use FortiAnalyzer filter syntax:
 
-| Objective | Filter String Example |
-| :--- | :--- |
-| **Specific IP** | `srcip=192.168.1.50` |
+| Objective         | Filter String Example         |
+|:------------------|:------------------------------|
+| **Specific IP**   | `srcip=192.168.1.50`          |
 | **Action & Port** | `action=deny and dstport=443` |
-| **User Search** | `user="j.doe"` |
-| **Threat Level** | `level=warning` |
-| **Exclusion** | `dstip!=10.0.0.1` |
+| **User Search**   | `user="j.doe"`                |
+| **Threat Level**  | `level=warning`               |
+| **Exclusion**     | `dstip!=10.0.0.1`             |
+| **Sub Type**      | `subtype=VPN`                 |
 
 ## 🛠️ Configuration & Defaults
 
