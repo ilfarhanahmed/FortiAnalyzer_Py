@@ -2,7 +2,7 @@
 FortiAnalyzer Log Search, Fetch and Download.
 Logs into FAZ, lets you pick ADOM and device(s),
 Add search criteria.
-Saves logs as CSV, JSON or TXT.
+Saves logs as CSV, JSON or TXT as zipped or normal.
 
 by: Farhan Ahmed - www.farhan.ch
 """
