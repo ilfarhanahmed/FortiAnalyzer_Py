@@ -258,7 +258,7 @@ def main():
             _header("Step 10 / 10 — Export Config")
             print("  1: CSV | 2: JSON | 3: Text")
             fmt = {"1": "csv", "2": "json", "3": "text"}.get(_prompt("Selection", "1"), "csv")
-            do_zip = _prompt("Zip output? (y/n)", "n").lower() == 'y'
+            do_zip = _prompt("Zip output? (y/n)", "y").lower() == 'y'
 
             for adom in adoms:
                 devs = select_devices(host, session, adom)
