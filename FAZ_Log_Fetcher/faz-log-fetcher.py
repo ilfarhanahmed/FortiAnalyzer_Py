@@ -156,7 +156,7 @@ def select_devices(host: str, session: str, adom: str) -> list:
     resp = _post(host, {"id": 1, "session": session, "method": "get",
                         "params": [{"url": f"/dvmdb/adom/{adom}/device", "fields": ["name", "sn", "vdom"]}]})
     devices = resp["result"][0].get("data", [])
-    rows = [{"label": "All FortiGates", "devid": "All_FortiGate"}]
+    rows = [{"label": "All Devices", "devid": "All_Devices"}, {"label": "All FortiGates", "devid": "All_FortiGate"}]
     for dev in devices:
         name, sn = dev.get("name", ""), dev.get("sn", "")
         for vdom in dev.get("vdom", [{}]):
