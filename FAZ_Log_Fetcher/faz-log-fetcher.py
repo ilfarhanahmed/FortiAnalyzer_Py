@@ -12,7 +12,6 @@ import os
 import time
 import urllib.request
 import ssl
-import argparse
 import csv
 import zipfile
 import re
@@ -26,6 +25,22 @@ API_TIMEOUT = 60
 _ssl_ctx = ssl.create_default_context()
 _ssl_ctx.check_hostname = False
 _ssl_ctx.verify_mode = ssl.CERT_NONE
+
+
+class Colors:
+    HEADER = '\033[95m'
+    BLUE = '\033[94m'
+    CYAN = '\033[96m'
+    GREEN = '\033[92m'
+    YELLOW = '\033[93m'
+    RED = '\033[91m'
+    BOLD = '\033[1m'
+    END = '\033[0m'
+
+
+def c(color: str, text: str) -> str:
+    """Wrap text in a color code."""
+    return f"{color}{text}{Colors.END}"
 
 
 def read_password(label):
@@ -47,17 +62,19 @@ def _post(host: str, payload: dict) -> dict:
         with urllib.request.urlopen(req, context=_ssl_ctx, timeout=API_TIMEOUT) as resp:
             return json.loads(resp.read())
     except Exception as e:
-        print(f"\n  [ERROR] Connection failed: {e}")
+        print(f"\n  {c(Colors.RED, '[ERROR]')} Connection failed: {c(Colors.YELLOW, str(e))}")
         sys.exit(1)
 
 
 def _header(text: str):
-    print(f"\n{'─' * 60}\n  {text}\n{'─' * 60}")
+    print(f"\n{c(Colors.CYAN, '─' * 60)}")
+    print(f"  {c(Colors.BOLD + Colors.HEADER, text)}")
+    print(f"{c(Colors.CYAN, '─' * 60)}")
 
 
 def _prompt(label: str, default: str = "") -> str:
-    hint = f" [{default}]" if default else ""
-    val = input(f"  {label}{hint}: ").strip()
+    hint = f" {c(Colors.CYAN, f'[{default}]')}" if default else ""
+    val = input(f"  {c(Colors.BLUE, label)}{hint}: ").strip()
     return val if val else default
 
 
@@ -97,24 +114,28 @@ def login(host: str, user: str, password: str) -> str:
     results = resp.get("result")
     status = results[0].get("status", {}) if results and isinstance(results, list) else {}
     if status.get("code") != 0 or not resp.get("session"):
-        print(f"\n  [ERROR] Login failed. Check IP/Credentials.")
+        print(f"\n  {c(Colors.RED, '[ERROR]')} Login failed. Check IP/Credentials.")
         sys.exit(1)
     session = resp.get("session")
-    print(f"  + Login Successful. Session: {session[:12]}...")
+    print(f"  {c(Colors.GREEN, '+')} Login Successful. Session: {c(Colors.CYAN, session[:12])}...")
     return session
 
 
 def select_adoms(host: str, session: str) -> list:
     _header("Step 2 / 10 — ADOM Selection")
     res = _post(host,
-                {"id": 1, "session": session, "method": "get", "params": [{"url": "/dvmdb/adom", "fields": ["name"]}]})
+                {"id": 1, "session": session, "method": "get",
+                 "params": [{"url": "/dvmdb/adom", "fields": ["name"]}]})
     all_adoms = [a['name'] for a in res["result"][0].get("data", []) if a['name'] != 'rootp']
-    print(f"\n  {'#':<4} {'ADOM Name'}\n  {'─' * 4} {'─' * 30}")
-    for i, name in enumerate(all_adoms): print(f"  {i:<4} {name}")
+    print(f"\n  {c(Colors.BOLD, '#'):<4} {c(Colors.BOLD, 'ADOM Name')}")
+    print(f"  {'─' * 4} {'─' * 30}")
+    for i, name in enumerate(all_adoms):
+        print(f"  {c(Colors.YELLOW, str(i)):<4} {name}")
     while True:
         raw = _prompt("\n  Select ADOM(s) (e.g. 0, 2-5)")
         indices = _parse_selection(raw, len(all_adoms) - 1)
-        if indices: return [all_adoms[i] for i in indices]
+        if indices:
+            return [all_adoms[i] for i in indices]
 
 
 def prompt_time_range() -> dict:
@@ -124,22 +145,84 @@ def prompt_time_range() -> dict:
     end_def = "2026-04-13 23:59:59"
     while True:
         v = _prompt("Enter start time", start_def)
-        if validate_date(v): trange["start"] = v; break
-        print("  [!] Invalid syntax. Use yyyy-mm-dd hh:mm:ss")
+        if validate_date(v):
+            trange["start"] = v
+            break
+        print(f"  {c(Colors.RED, '[!]')} Invalid syntax. Use {c(Colors.YELLOW, 'yyyy-mm-dd hh:mm:ss')}")
     while True:
         v = _prompt("Enter end time", end_def)
-        if validate_date(v): trange["end"] = v; break
-        print("  [!] Invalid syntax. Use yyyy-mm-dd hh:mm:ss")
+        if validate_date(v):
+            trange["end"] = v
+            break
+        print(f"  {c(Colors.RED, '[!]')} Invalid syntax. Use {c(Colors.YELLOW, 'yyyy-mm-dd hh:mm:ss')}")
     return trange
 
 
-def prompt_logtype() -> str:
+def fetch_logtypes(host: str, session: str, adom: str) -> list:
+    resp = _post(host, {
+        "id": 1, "session": session, "method": "get", "jsonrpc": "2.0",
+        "params": [{"url": f"/logview/adom/{adom}/logtypes", "apiver": 3}]
+    })
+    data = resp.get("result", {}).get("data") or []
+
+    entries = []
+    for devtype in data:
+        dev_name = devtype.get("name", "Unknown")
+        for lt in devtype.get("logtypes", []):
+            name = lt["name"]
+            if name == "event":
+                # Show as single entry — subtypes are used in the filter step
+                entries.append({
+                    "display": f"{'event':<20} [{dev_name}]",
+                    "logtype": "event",
+                    "devtype": dev_name
+                })
+            elif "logtypes" in lt:
+                # utm or similar — flatten children directly, drop parent label
+                for sub in lt.get("logtypes", []):
+                    entries.append({
+                        "display": f"{sub['name']:<20} [{dev_name}]",
+                        "logtype": sub["name"],
+                        "devtype": dev_name
+                    })
+            else:
+                entries.append({
+                    "display": f"{name:<20} [{dev_name}]",
+                    "logtype": name,
+                    "devtype": dev_name
+                })
+    return entries
+
+
+def prompt_logtype(host: str, session: str, adom: str) -> str:
     _header("Step 4 / 10 — Log Type")
-    types = ["traffic", "event", "webfilter", "ssl", "app-ctrl"]
-    for i, lt in enumerate(types): print(f"    {i}  {lt}")
+    entries = fetch_logtypes(host, session, adom)
+
+    if not entries:
+        print(f"  {c(Colors.YELLOW, '[!]')} Could not fetch log types from FAZ. Falling back to defaults.")
+        entries = [
+            {"display": "traffic              [FortiGate]", "logtype": "traffic",   "devtype": "FortiGate"},
+            {"display": "event                [FortiGate]", "logtype": "event",     "devtype": "FortiGate"},
+            {"display": "webfilter            [FortiGate]", "logtype": "webfilter", "devtype": "FortiGate"},
+            {"display": "app-ctrl             [FortiGate]", "logtype": "app-ctrl",  "devtype": "FortiGate"},
+            {"display": "ssl                  [FortiGate]", "logtype": "ssl",       "devtype": "FortiGate"},
+        ]
+
+    print(f"\n  {c(Colors.BOLD, '#'):<4}  {c(Colors.BOLD, 'Log Type'):<20}  {c(Colors.BOLD, 'Device')}")
+    print(f"  {'─' * 4}  {'─' * 20}  {'─' * 22}")
+
+    current_dev = None
+    for i, entry in enumerate(entries):
+        if entry["devtype"] != current_dev:
+            current_dev = entry["devtype"]
+            print(f"\n  {c(Colors.HEADER + Colors.BOLD, f'── {current_dev} ──')}")
+        print(f"  {c(Colors.YELLOW, str(i)):<4}  {entry['display']}")
+
     raw = _prompt("\n  Select log type #", "0")
-    idx = int(raw) if raw.isdigit() and 0 <= int(raw) < len(types) else 0
-    return types[idx]
+    idx = int(raw) if raw.isdigit() and 0 <= int(raw) < len(entries) else 0
+    selected = entries[idx]["logtype"]
+    print(f"  {c(Colors.GREEN, '+')} Selected: {c(Colors.CYAN, selected)}")
+    return selected
 
 
 def prompt_filter() -> str:
@@ -152,24 +235,30 @@ def prompt_filter() -> str:
 
 
 def select_devices(host: str, session: str, adom: str) -> list:
-    _header(f"Step 6 / 10 — Device Selection ({adom})")
+    _header(f"Step 6 / 10 — Device Selection ({c(Colors.CYAN, adom)})")
     resp = _post(host, {"id": 1, "session": session, "method": "get",
                         "params": [{"url": f"/dvmdb/adom/{adom}/device", "fields": ["name", "sn", "vdom"]}]})
     devices = resp["result"][0].get("data", [])
-    rows = [{"label": "All Devices", "devid": "All_Devices"}, {"label": "All FortiGates", "devid": "All_FortiGate"}]
+    rows = [
+        {"label": "All Devices",    "devid": "All_Devices"},
+        {"label": "All FortiGates", "devid": "All_FortiGate"}
+    ]
     for dev in devices:
         name, sn = dev.get("name", ""), dev.get("sn", "")
         for vdom in dev.get("vdom", [{}]):
-            rows.append({"label": f"{name:<25} SN: {sn:<20} VDOM: {vdom.get('name', 'root')}",
-                         "devid": f"{sn}[{vdom.get('name', 'root')}]"})
-    for i, r in enumerate(rows): print(f"  {i:<5} {r['label']}")
+            rows.append({
+                "label": f"{name:<25} SN: {sn:<20} VDOM: {vdom.get('name', 'root')}",
+                "devid": f"{sn}[{vdom.get('name', 'root')}]"
+            })
+    for i, r in enumerate(rows):
+        print(f"  {c(Colors.YELLOW, str(i)):<5} {r['label']}")
     indices = _parse_selection(_prompt("\n  Selection", "0"), len(rows) - 1)
     return [{"devid": rows[i]["devid"]} for i in indices]
 
 
-def logsearch_run(host: str, session: str, adom: str, logtype: str, log_filter: str, time_range: dict,
-                  devices: list) -> str:
-    _header(f"Step 7 / 10 — Starting Search [{adom}]")
+def logsearch_run(host: str, session: str, adom: str, logtype: str, log_filter: str,
+                  time_range: dict, devices: list) -> str:
+    _header(f"Step 7 / 10 — Starting Search [{c(Colors.CYAN, adom)}]")
     payload = {
         "id": "2", "jsonrpc": "2.0", "method": "add",
         "params": [{
@@ -183,7 +272,7 @@ def logsearch_run(host: str, session: str, adom: str, logtype: str, log_filter: 
 
 
 def logsearch_wait_for_index(host: str, session: str, adom: str, tid: str) -> int:
-    _header(f"Step 8 / 10 — Indexing Logs [{adom}]")
+    _header(f"Step 8 / 10 — Indexing Logs [{c(Colors.CYAN, adom)}]")
     while True:
         resp = _post(host, {"id": "3", "jsonrpc": "2.0", "method": "get",
                             "params": [{"url": f"/logview/adom/{adom}/logsearch/count/{tid}", "apiver": 3}],
@@ -191,16 +280,29 @@ def logsearch_wait_for_index(host: str, session: str, adom: str, tid: str) -> in
         res = resp.get("result", {})
         percent = res.get("progress-percent", 0)
         matched = res.get("matched-logs", 0)
-        print(f"  [Indexing] {percent}% complete... Matched: {matched:,} logs", end="\r", flush=True)
+
+        if percent < 40:
+            pct_color = Colors.RED
+        elif percent < 80:
+            pct_color = Colors.YELLOW
+        else:
+            pct_color = Colors.GREEN
+
+        print(
+            f"  {c(Colors.BLUE, '[Indexing]')} {c(pct_color, f'{percent}%')} complete... "
+            f"Matched: {c(Colors.CYAN, f'{matched:,}')} logs",
+            end="\r", flush=True
+        )
         if percent == 100:
-            print(f"\n  + Final Index Match Count: {matched:,}")
+            print(f"\n  {c(Colors.GREEN, '+')} Final Index Match Count: {c(Colors.BOLD + Colors.GREEN, f'{matched:,}')}")
             return matched
         time.sleep(POLL_INTERVAL)
 
 
 def logsearch_fetch_all(host: str, session: str, adom: str, tid: str, matched_count: int) -> list:
-    _header(f"Step 9 / 10 — Downloading Data [{adom}]")
-    if matched_count == 0: return []
+    _header(f"Step 9 / 10 — Downloading Data [{c(Colors.CYAN, adom)}]")
+    if matched_count == 0:
+        return []
     PAGE, all_logs, offset = 1000, [], 0
     while offset < matched_count:
         while True:
@@ -211,7 +313,11 @@ def logsearch_fetch_all(host: str, session: str, adom: str, tid: str, matched_co
             if result.get("percentage") == 100:
                 logs = result.get("data") or []
                 all_logs.extend(logs)
-                print(f"  + Fetched offset {offset} ({len(logs)} logs). Total: {len(all_logs):,}")
+                print(
+                    f"  {c(Colors.GREEN, '+')} Fetched offset {c(Colors.YELLOW, str(offset))} "
+                    f"({c(Colors.CYAN, str(len(logs)))} logs). "
+                    f"Total: {c(Colors.BOLD + Colors.GREEN, f'{len(all_logs):,}')}"
+                )
                 break
             time.sleep(POLL_INTERVAL)
         offset += PAGE
@@ -231,32 +337,35 @@ def save_logs(logs: list, filename_base: str, fmt: str, do_zip: bool):
             json.dump(logs, f, indent=2)
     else:
         with open(temp_file, 'w', encoding='utf-8') as f:
-            for l in logs: f.write(str(l) + "\n")
+            for l in logs:
+                f.write(str(l) + "\n")
     if do_zip:
         with zipfile.ZipFile(f"{filename_base}.zip", 'w', zipfile.ZIP_DEFLATED) as z:
             z.write(temp_file, os.path.basename(temp_file))
         os.remove(temp_file)
-        print(f"  + Saved: {filename_base}.zip")
+        print(f"  {c(Colors.GREEN, '+')} Saved: {c(Colors.BOLD + Colors.CYAN, f'{filename_base}.zip')}")
     else:
-        print(f"  + Saved: {temp_file}")
+        print(f"  {c(Colors.GREEN, '+')} Saved: {c(Colors.BOLD + Colors.CYAN, temp_file)}")
 
 
 def main():
     _header("FAZ Log Fetcher Pro")
     host = _prompt("FAZ IP")
     user = _prompt("Admin Username", "admin")
-    pw = read_password(f"  Password for {user}: ")
+    pw = read_password(f"  {c(Colors.BLUE, f'Password for {user}')}: ")
     session = login(host, user, pw)
 
     try:
         while True:
             adoms = select_adoms(host, session)
             trange = prompt_time_range()
-            ltype = prompt_logtype()
+            ltype = prompt_logtype(host, session, adoms[0])
             lfilter = prompt_filter()
 
             _header("Step 10 / 10 — Export Config")
-            print("  1: CSV | 2: JSON | 3: Text")
+            print(f"  {c(Colors.YELLOW, '1')}: CSV  {c(Colors.YELLOW, '|')}  "
+                  f"{c(Colors.YELLOW, '2')}: JSON  {c(Colors.YELLOW, '|')}  "
+                  f"{c(Colors.YELLOW, '3')}: Text")
             fmt = {"1": "csv", "2": "json", "3": "text"}.get(_prompt("Selection", "1"), "csv")
             do_zip = _prompt("Zip output? (y/n)", "y").lower() == 'y'
 
@@ -275,10 +384,11 @@ def main():
                                  "params": [{"url": f"/logview/adom/{adom}/logsearch/{tid}", "apiver": 3}],
                                  "session": session})
 
-            if _prompt("\n  Fetch more logs? (y/n)", "n").lower() != 'y': break
+            if _prompt("\n  Fetch more logs? (y/n)", "n").lower() != 'y':
+                break
     finally:
         _post(host, {"id": 1, "method": "exec", "params": [{"url": "/sys/logout"}], "session": session})
-        print("\n  Session closed. Goodbye!")
+        print(f"\n  {c(Colors.GREEN, 'Session closed.')} {c(Colors.BOLD, 'Goodbye!')}")
 
 
 if __name__ == "__main__":
