@@ -141,8 +141,10 @@ def select_adoms(host: str, session: str) -> list:
 def prompt_time_range() -> dict:
     _header("Step 3 / 10 — Time Range")
     trange = {"start": "", "end": ""}
-    start_def = "2026-04-01 00:00:00"
-    end_def = "2026-04-13 23:59:59"
+    # Using dynamic current year for defaults
+    curr_year = datetime.now().year
+    start_def = f"{curr_year}-04-01 00:00:00"
+    end_def = f"{curr_year}-04-13 23:59:59"
     while True:
         v = _prompt("Enter start time", start_def)
         if validate_date(v):
@@ -171,14 +173,12 @@ def fetch_logtypes(host: str, session: str, adom: str) -> list:
         for lt in devtype.get("logtypes", []):
             name = lt["name"]
             if name == "event":
-                # Show as single entry — subtypes are used in the filter step
                 entries.append({
                     "display": f"{'event':<20} [{dev_name}]",
                     "logtype": "event",
                     "devtype": dev_name
                 })
             elif "logtypes" in lt:
-                # utm or similar — flatten children directly, drop parent label
                 for sub in lt.get("logtypes", []):
                     entries.append({
                         "display": f"{sub['name']:<20} [{dev_name}]",
@@ -199,14 +199,8 @@ def prompt_logtype(host: str, session: str, adom: str) -> str:
     entries = fetch_logtypes(host, session, adom)
 
     if not entries:
-        print(f"  {c(Colors.YELLOW, '[!]')} Could not fetch log types from FAZ. Falling back to defaults.")
-        entries = [
-            {"display": "traffic              [FortiGate]", "logtype": "traffic",   "devtype": "FortiGate"},
-            {"display": "event                [FortiGate]", "logtype": "event",     "devtype": "FortiGate"},
-            {"display": "webfilter            [FortiGate]", "logtype": "webfilter", "devtype": "FortiGate"},
-            {"display": "app-ctrl             [FortiGate]", "logtype": "app-ctrl",  "devtype": "FortiGate"},
-            {"display": "ssl                  [FortiGate]", "logtype": "ssl",       "devtype": "FortiGate"},
-        ]
+        print(f"  {c(Colors.YELLOW, '[!]')} Could not fetch log types. Using common defaults.")
+        entries = [{"display": "traffic              [FortiGate]", "logtype": "traffic", "devtype": "FortiGate"}]
 
     print(f"\n  {c(Colors.BOLD, '#'):<4}  {c(Colors.BOLD, 'Log Type'):<20}  {c(Colors.BOLD, 'Device')}")
     print(f"  {'─' * 4}  {'─' * 20}  {'─' * 22}")
@@ -227,7 +221,7 @@ def prompt_logtype(host: str, session: str, adom: str) -> str:
 
 def prompt_filter() -> str:
     _header("Step 5 / 10 — Log Filter")
-    raw = _prompt('\n  Filter string', "")
+    raw = _prompt('\n  Filter string (e.g. srcip=1.1.1.1)', "")
     if raw and "=" in raw and '"' not in raw:
         key, val = raw.split("=", 1)
         return f'{key}=\"{val}\"'
@@ -281,75 +275,70 @@ def logsearch_wait_for_index(host: str, session: str, adom: str, tid: str) -> in
         percent = res.get("progress-percent", 0)
         matched = res.get("matched-logs", 0)
 
-        if percent < 40:
-            pct_color = Colors.RED
-        elif percent < 80:
-            pct_color = Colors.YELLOW
-        else:
-            pct_color = Colors.GREEN
+        print(f"  {c(Colors.BLUE, '[Indexing]')} {percent}% complete... Matched: {c(Colors.CYAN, f'{matched:,}')} logs", end="\r", flush=True)
 
-        print(
-            f"  {c(Colors.BLUE, '[Indexing]')} {c(pct_color, f'{percent}%')} complete... "
-            f"Matched: {c(Colors.CYAN, f'{matched:,}')} logs",
-            end="\r", flush=True
-        )
         if percent == 100:
             print(f"\n  {c(Colors.GREEN, '+')} Final Index Match Count: {c(Colors.BOLD + Colors.GREEN, f'{matched:,}')}")
             return matched
         time.sleep(POLL_INTERVAL)
 
 
-def logsearch_fetch_all(host: str, session: str, adom: str, tid: str, matched_count: int) -> list:
+def logsearch_stream_fetch(host: str, session: str, adom: str, tid: str, matched_count: int, file_path: str, fmt: str):
+    """Streams data from FAZ and writes directly to disk with clear progress printing."""
     _header(f"Step 9 / 10 — Downloading Data [{c(Colors.CYAN, adom)}]")
-    if matched_count == 0:
-        return []
-    PAGE, all_logs, offset = 1000, [], 0
-    while offset < matched_count:
-        while True:
-            resp = _post(host, {"id": "1", "jsonrpc": "2.0", "method": "get", "params": [
-                {"url": f"/logview/adom/{adom}/logsearch/{tid}", "offset": offset, "limit": PAGE, "apiver": 3}],
-                                "session": session})
-            result = resp.get("result", {})
-            if result.get("percentage") == 100:
-                logs = result.get("data") or []
-                all_logs.extend(logs)
-                print(
-                    f"  {c(Colors.GREEN, '+')} Fetched offset {c(Colors.YELLOW, str(offset))} "
-                    f"({c(Colors.CYAN, str(len(logs)))} logs). "
-                    f"Total: {c(Colors.BOLD + Colors.GREEN, f'{len(all_logs):,}')}"
-                )
-                break
-            time.sleep(POLL_INTERVAL)
-        offset += PAGE
-    return all_logs
+    PAGE, offset, total_downloaded = 1000, 0, 0
 
-
-def save_logs(logs: list, filename_base: str, fmt: str, do_zip: bool):
-    temp_file = f"{filename_base}.{fmt if fmt != 'text' else 'txt'}"
+    # Pre-fetch headers for CSV
+    headers = []
     if fmt == "csv":
-        keys = sorted(list(set().union(*(d.keys() for d in logs))))
-        with open(temp_file, 'w', newline='', encoding='utf-8') as f:
-            writer = csv.DictWriter(f, fieldnames=keys)
+        resp = _post(host, {"id": "1", "jsonrpc": "2.0", "method": "get", "params": [
+            {"url": f"/logview/adom/{adom}/logsearch/{tid}", "offset": 0, "limit": 5, "apiver": 3}],
+                            "session": session})
+        sample = resp.get("result", {}).get("data") or [{}]
+        headers = sorted(list(set().union(*(d.keys() for d in sample))))
+
+    with open(file_path, 'w', newline='', encoding='utf-8') as f:
+        writer = None
+        if fmt == "csv":
+            writer = csv.DictWriter(f, fieldnames=headers)
             writer.writeheader()
-            writer.writerows(logs)
-    elif fmt == "json":
-        with open(temp_file, 'w', encoding='utf-8') as f:
-            json.dump(logs, f, indent=2)
-    else:
-        with open(temp_file, 'w', encoding='utf-8') as f:
-            for l in logs:
-                f.write(str(l) + "\n")
-    if do_zip:
-        with zipfile.ZipFile(f"{filename_base}.zip", 'w', zipfile.ZIP_DEFLATED) as z:
-            z.write(temp_file, os.path.basename(temp_file))
-        os.remove(temp_file)
-        print(f"  {c(Colors.GREEN, '+')} Saved: {c(Colors.BOLD + Colors.CYAN, f'{filename_base}.zip')}")
-    else:
-        print(f"  {c(Colors.GREEN, '+')} Saved: {c(Colors.BOLD + Colors.CYAN, temp_file)}")
+
+        while offset < matched_count:
+            while True:
+                resp = _post(host, {"id": "1", "jsonrpc": "2.0", "method": "get", "params": [
+                    {"url": f"/logview/adom/{adom}/logsearch/{tid}", "offset": offset, "limit": PAGE, "apiver": 3}],
+                                    "session": session})
+                result = resp.get("result", {})
+
+                if result.get("percentage") == 100:
+                    logs = result.get("data") or []
+
+                    if fmt == "csv":
+                        writer.writerows(logs)
+                    elif fmt == "json":
+                        for l in logs:
+                            f.write(json.dumps(l) + "\n")
+                    else:
+                        for l in logs:
+                            f.write(str(l) + "\n")
+
+                    total_downloaded += len(logs)
+
+                    # This is the line-by-line progress you preferred:
+                    print(
+                        f"  {c(Colors.GREEN, '+')} Downloaded offset {c(Colors.YELLOW, str(offset))} "
+                        f"({c(Colors.CYAN, str(len(logs)))} logs). "
+                        f"Total Saved: {c(Colors.BOLD + Colors.GREEN, f'{total_downloaded:,}')}"
+                    )
+                    break
+
+                time.sleep(POLL_INTERVAL)
+            offset += PAGE
+    print(f"\n  {c(Colors.GREEN, 'Done!')} File is fully written to disk.")
 
 
 def main():
-    _header("FAZ Log Fetcher Pro")
+    _header("FAZ Log Fetcher")
     host = _prompt("FAZ IP")
     user = _prompt("Admin Username", "admin")
     pw = read_password(f"  {c(Colors.BLUE, f'Password for {user}')}: ")
@@ -374,12 +363,30 @@ def main():
                 tid = logsearch_run(host, session, adom, ltype, lfilter, trange, devs)
                 if tid:
                     matched = logsearch_wait_for_index(host, session, adom, tid)
-                    logs = logsearch_fetch_all(host, session, adom, tid, matched)
-                    if logs:
-                        os.makedirs("logs", exist_ok=True)
-                        ts = datetime.now().strftime('%Y%m%d_%H%M%S')
-                        base = f"logs/faz_{adom}_{ltype}_{ts}"
-                        save_logs(logs, base, fmt, do_zip)
+
+                    if matched == 0:
+                        print(f"  {c(Colors.YELLOW, '[!]')} No logs found for this criteria.")
+                    else:
+                        # Safety check for accidental huge downloads
+                        confirm = _prompt(f"Proceed to download {c(Colors.BOLD + Colors.CYAN, f'{matched:,}')} logs? (y/n)", "y")
+
+                        if confirm.lower() == 'y':
+                            os.makedirs("logs", exist_ok=True)
+                            ts = datetime.now().strftime('%Y%m%d_%H%M%S')
+                            ext = "csv" if fmt == "csv" else "json" if fmt == "json" else "txt"
+                            filename_base = f"logs/faz_{adom}_{ltype}_{ts}"
+                            full_path = f"{filename_base}.{ext}"
+
+                            logsearch_stream_fetch(host, session, adom, tid, matched, full_path, fmt)
+
+                            if do_zip:
+                                with zipfile.ZipFile(f"{filename_base}.zip", 'w', zipfile.ZIP_DEFLATED) as z:
+                                    z.write(full_path, os.path.basename(full_path))
+                                os.remove(full_path)
+                                print(f"  {c(Colors.GREEN, '+')} Zipped: {c(Colors.BOLD + Colors.CYAN, f'{filename_base}.zip')}")
+                            else:
+                                print(f"  {c(Colors.GREEN, '+')} Saved: {c(Colors.BOLD + Colors.CYAN, full_path)}")
+
                     _post(host, {"id": 1, "method": "delete",
                                  "params": [{"url": f"/logview/adom/{adom}/logsearch/{tid}", "apiver": 3}],
                                  "session": session})
