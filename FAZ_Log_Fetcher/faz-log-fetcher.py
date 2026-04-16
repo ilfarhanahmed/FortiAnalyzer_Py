@@ -352,10 +352,10 @@ def main():
             lfilter = prompt_filter()
 
             _header("Step 10 / 10 — Export Config")
-            print(f"  {c(Colors.YELLOW, '1')}: CSV  {c(Colors.YELLOW, '|')}  "
-                  f"{c(Colors.YELLOW, '2')}: JSON  {c(Colors.YELLOW, '|')}  "
-                  f"{c(Colors.YELLOW, '3')}: Text")
-            fmt = {"1": "csv", "2": "json", "3": "text"}.get(_prompt("Selection", "1"), "csv")
+            print(
+                  f"{c(Colors.YELLOW, '1')}: JSON  {c(Colors.YELLOW, '|')}  "
+                  f"{c(Colors.YELLOW, '2')}: Text")
+            fmt = {"1": "json", "2": "text"}.get(_prompt("Selection", "1"), "csv")
             do_zip = _prompt("Zip output? (y/n)", "y").lower() == 'y'
 
             for adom in adoms:
