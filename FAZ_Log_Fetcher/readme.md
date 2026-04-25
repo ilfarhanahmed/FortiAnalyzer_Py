@@ -41,9 +41,8 @@ When prompted in **Step 5**, you can use FortiAnalyzer filter syntax:
 
 ## 🛠️ Configuration & Defaults
 
-- **FETCH_LIMIT**: Currently set to 1,000,000 (can be increased/decreased). This is the maximum records the FAZ will keep in its temporary search buffer.
 - **POLL_INTERVAL**: Set to 2 seconds. Balancing between speed and API overhead.
-- **Timeout**: 60 seconds for API responses to handle slow database queries.
+- **API_Timeout**: 60 seconds for API responses to handle slow database queries.
 
 ## 📦 Output Structure
 
