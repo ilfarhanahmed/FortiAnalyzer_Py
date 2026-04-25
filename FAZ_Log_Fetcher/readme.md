@@ -49,7 +49,7 @@ When prompted in **Step 5**, you can use FortiAnalyzer filter syntax:
 Files are saved in the `./logs/` directory with the following naming convention:
 `faz_[ADOM]_[LogType]_[Timestamp].[Ext]`
 
-*Example: `faz_root_traffic_20260413_143005.csv`*
+*Example: `faz_root_traffic_20260413_143005.txt`*
 
 ---
 **Note:** This script uses `ssl._create_unverified_context()`. Ensure your network path is secure when connecting over public networks.
