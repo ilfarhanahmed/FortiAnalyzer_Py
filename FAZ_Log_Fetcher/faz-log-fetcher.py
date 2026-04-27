@@ -32,15 +32,14 @@ _ssl_ctx.verify_mode = ssl.CERT_NONE
 
 
 class Colors:
-    HEADER = '\033[95m'
+    HEADER = '\033[95m' # bright magenta
     BLUE = '\033[94m'
     CYAN = '\033[96m'
     GREEN = '\033[92m'
     YELLOW = '\033[93m'
     RED = '\033[91m'
     BOLD = '\033[1m'
-    END = '\033[0m'
-
+    END = '\033[0m' # resets color back to normal
 
 def c(color: str, text: str) -> str:
     """Wrap text in a color code."""
