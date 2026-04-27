@@ -130,12 +130,17 @@ def login(host: str, user: str, password: str) -> str:
     _header("Step 1 / 11 — Login")
     payload = {"id": 1, "method": "exec", "apiver": 3,
                "params": [{"data": {"user": user, "passwd": password}, "url": "/sys/login/user"}]}
+    # _post needs two arguments, host is already defined, payload is a dict defined above.
     resp = _post(host, payload)
+    # get "result" from the response.
     results = resp.get("result")
+    # Check if 'results' is NOT none and if its a list (isinstance), then fetch "status" from the results[0] - first index.
     status = results[0].get("status", {}) if results and isinstance(results, list) else {}
+    # Error if status does not have code 0 or there is no 'session'.
     if status.get("code") != 0 or not resp.get("session"):
         print(f"\n  {c(Colors.RED, '[ERROR]')} Login failed. Check IP/Credentials.")
         sys.exit(1)
+    # if session is present in response, then save it for future use.
     session = resp.get("session")
     print(f"  {c(Colors.GREEN, '+')} Login Successful. Session: {c(Colors.CYAN, session[:12])}...")
     return session
@@ -146,10 +151,13 @@ def select_adoms(host: str, session: str) -> list:
     res = _post(host,
                 {"id": 1, "session": session, "method": "get",
                  "params": [{"url": "/dvmdb/adom", "fields": ["name"]}]})
+    # filtering our "rootp (Global ADOM)".
     all_adoms = [a['name'] for a in res["result"][0].get("data", []) if a['name'] != 'rootp']
     print(f"\n  {c(Colors.BOLD, '#'):<4} {c(Colors.BOLD, 'ADOM Name')}")
-    print(f"  {'─' * 4} {'─' * 30}")
+    print(f"  {'─' * 4} {'─' * 30}") # beautify
+    # Adding indices to the ADOMs.
     for i, name in enumerate(all_adoms):
+        # converting adoms indices to string to passthough 'c' for coloring.
         print(f"  {c(Colors.YELLOW, str(i)):<4} {name}")
     while True:
         raw = _prompt("\n  Select ADOM(s) (e.g. 0, 2-5)")
@@ -167,7 +175,7 @@ def select_device_type(host: str, session: str, adom: str) -> tuple:
                                         "fields": ["name", "os_type", "platform_str"]}]})
     all_devices = dev_resp["result"][0].get("data", [])
 
-    # Build map: product_name → os_type
+    # Build map: product_name -> os_type
     # platform_str format: "FortiGate-60E", "FortiAnalyzer-VM64-KVM" etc.
     # First segment before "-" matches the "name" field in logtypes response exactly
     name_to_os_type = {}
@@ -187,7 +195,7 @@ def select_device_type(host: str, session: str, adom: str) -> tuple:
     lt_data = lt_resp.get("result", {}).get("data") or []
 
     # Only include devtypes that have actual devices registered in this ADOM
-    # SIEM/Fabric logs (SIM) may not have a physical device entry — include if present in logtypes
+    # SIEM/Fabric logs (SIM) may not have a physical device entry - include if present in logtypes
     available = []
     for entry in lt_data:
         product_name = entry.get("name", "")
