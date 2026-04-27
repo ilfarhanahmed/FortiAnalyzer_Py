@@ -76,38 +76,55 @@ def _header(text: str):
 
 
 def _prompt(label: str, default: str = "") -> str:
+    # if default value is set then use it otherwise blank.
     hint = f" {c(Colors.CYAN, f'[{default}]')}" if default else ""
+    # strip white spaces entered by user.
     val = input(f"  {c(Colors.BLUE, label)}{hint}: ").strip()
     return val if val else default
 
 
 def _parse_selection(raw: str, max_idx: int) -> list:
+    # max_idx general use will be like max_idx=len(items) - 1, => calculate length of 'items' and minus 1 because len does not start from 0 and the list actually starts from 0, so minus 1 would make the total length the same btu index starts with 0.
+    # a "set" is like a list but no duplicates allowed.
     indices = set()
+    # split the input by ","
     for part in raw.split(","):
         part = part.strip()
         if "-" in part:
             try:
+                # splits by "-" but maximum 1 time and stores in two variables "a" and "b".
                 a, b = part.split("-", 1)
-                indices.update(range(int(a), int(b) + 1))
+                # convert string to integer, start the indices set from "a" end on "b" with increment of 1.
+                indices.update(range(int(a), int(b) + 1)) # update is used because there are two ints.
+            # if split does not split in two, raise a error but do not crash the code.
             except ValueError:
                 pass
+        # if part does not have "-" and is a single integer then add that to the indices set.
         elif part.isdigit():
-            indices.add(int(part))
+            indices.add(int(part)) # add is used because only a single int is passed.
+    # safely return indices within valid range.
     return sorted(i for i in indices if 0 <= i <= max_idx)
 
 
 def validate_date(date_str: str) -> bool:
+    # r'...' — a raw string, the r means backslashes are treated literally (important for regex).
+    # ^ = starts here.
+    # \d{4} = 4 digits, - means the dash.
+    # $ = must end here.
     pattern = r'^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$'
+    # re.match() = checks if the string matches the pattern
     if not re.match(pattern, date_str):
         return False
     try:
+        # parse the string as a real date
         datetime.strptime(date_str, '%Y-%m-%d %H:%M:%S')
         return True
     except ValueError:
         return False
 
-
+# =====================
 # -- FAZ Logic Steps --
+# =====================
 
 def login(host: str, user: str, password: str) -> str:
     _header("Step 1 / 11 — Login")
