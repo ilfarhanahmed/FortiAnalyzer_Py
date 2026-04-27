@@ -41,6 +41,12 @@ class Colors:
     BOLD = '\033[1m'
     END = '\033[0m' # resets color back to normal
 
+
+class BackSignal(Exception):
+    """Raised when user types 'b' or 'back' at any prompt to go to the previous step."""
+    pass
+
+
 def c(color: str, text: str) -> str:
     """Wrap text in a color code."""
     return f"{color}{text}{Colors.END}"
@@ -70,21 +76,27 @@ def _post(host: str, payload: dict) -> dict:
 
 
 def _header(text: str):
-    print(f"\n{c(Colors.CYAN, '─' * 60)}")
+    print(f"\n{c(Colors.CYAN, chr(9472) * 60)}")
     print(f"  {c(Colors.BOLD + Colors.HEADER, text)}")
-    print(f"{c(Colors.CYAN, '─' * 60)}")
+    print(f"{c(Colors.CYAN, chr(9472) * 60)}")
 
 
-def _prompt(label: str, default: str = "") -> str:
+
+def _prompt(label: str, default: str = "", allow_back: bool = True) -> str:
     # if default value is set then use it otherwise blank.
-    hint = f" {c(Colors.CYAN, f'[{default}]')}" if default else ""
+    hint      = f" {c(Colors.CYAN, f'[{default}]')}" if default else ""
+    # show back hint so user knows they can go back at any step.
+    back_hint = c(Colors.YELLOW, " (b=back)") if allow_back else ""
     # strip white spaces entered by user.
-    val = input(f"  {c(Colors.BLUE, label)}{hint}: ").strip()
+    val = input(f"  {c(Colors.BLUE, label)}{hint}{back_hint}: ").strip()
+    # if user types 'b' or 'back', raise BackSignal to trigger step navigation.
+    if allow_back and val.lower() in ("b", "back"):
+        raise BackSignal()
     return val if val else default
 
 
 def _parse_selection(raw: str, max_idx: int) -> list:
-    # max_idx general use will be like max_idx=len(items) - 1, => calculate length of 'items' and minus 1 because len does not start from 0 and the list actually starts from 0, so minus 1 would make the total length the same btu index starts with 0.
+    # max_idx general use will be like max_idx=len(items) - 1, => calculate length of 'items' and minus 1 because len does not start from 0 and the list actually starts from 0, so minus 1 would make the total length the same but index starts with 0.
     # a "set" is like a list but no duplicates allowed.
     indices = set()
     # split the input by ","
@@ -151,13 +163,13 @@ def select_adoms(host: str, session: str) -> list:
     res = _post(host,
                 {"id": 1, "session": session, "method": "get",
                  "params": [{"url": "/dvmdb/adom", "fields": ["name"]}]})
-    # filtering our "rootp (Global ADOM)".
+    # filtering out "rootp" (Global ADOM).
     all_adoms = [a['name'] for a in res["result"][0].get("data", []) if a['name'] != 'rootp']
     print(f"\n  {c(Colors.BOLD, '#'):<4} {c(Colors.BOLD, 'ADOM Name')}")
-    print(f"  {'─' * 4} {'─' * 30}") # beautify
+    print(f"  {chr(9472) * 4} {chr(9472) * 30}") # beautify
     # Adding indices to the ADOMs.
     for i, name in enumerate(all_adoms):
-        # converting adoms indices to string to passthough 'c' for coloring.
+        # converting adoms indices to string to pass through 'c' for coloring.
         print(f"  {c(Colors.YELLOW, str(i)):<4} {name}")
     while True:
         raw = _prompt("\n  Select ADOM(s) (e.g. 0, 2-5)")
@@ -170,6 +182,7 @@ def select_device_type(host: str, session: str, adom: str) -> tuple:
     _header("Step 3 / 11 — Device Type Selection")
 
     # Single fetch — get os_type and platform_str for all devices in this ADOM
+    # verbose=1 at top level ensures os_type is returned as a readable string e.g. "fos", "faz"
     dev_resp = _post(host, {"id": 1, "session": session, "method": "get", "verbose": 1,
                             "params": [{"url": f"/dvmdb/adom/{adom}/device",
                                         "fields": ["name", "os_type", "platform_str"]}]})
@@ -177,7 +190,8 @@ def select_device_type(host: str, session: str, adom: str) -> tuple:
 
     # Build map: product_name -> os_type
     # platform_str format: "FortiGate-60E", "FortiAnalyzer-VM64-KVM" etc.
-    # First segment before "-" matches the "name" field in logtypes response exactly
+    # First segment before "-" matches the "name" field in logtypes response exactly.
+    # This avoids any hardcoded mapping — FAZ tells us what os_type each product uses.
     name_to_os_type = {}
     for d in all_devices:
         os_type      = d.get("os_type", "").lower()
@@ -194,8 +208,8 @@ def select_device_type(host: str, session: str, adom: str) -> tuple:
     })
     lt_data = lt_resp.get("result", {}).get("data") or []
 
-    # Only include devtypes that have actual devices registered in this ADOM
-    # SIEM/Fabric logs (SIM) may not have a physical device entry - include if present in logtypes
+    # Only include devtypes that have actual devices registered in this ADOM.
+    # SIEM/Fabric logs (SIM) may not have a physical device entry - include if present in logtypes.
     available = []
     for entry in lt_data:
         product_name = entry.get("name", "")
@@ -210,7 +224,7 @@ def select_device_type(host: str, session: str, adom: str) -> tuple:
         sys.exit(1)
 
     print(f"\n  {c(Colors.BOLD, '#'):<4}  {c(Colors.BOLD, 'Device Type'):<30}  {c(Colors.BOLD, 'os_type')}")
-    print(f"  {'─' * 4}  {'─' * 30}  {'─' * 10}")
+    print(f"  {chr(9472)*4}  {chr(9472)*30}  {chr(9472)*10}")
     for i, (entry, os_type) in enumerate(available):
         devtype = entry.get("devtype", "")
         display = DEVTYPE_DISPLAY_NAMES.get(devtype, entry.get("name", devtype))
@@ -240,14 +254,15 @@ def prompt_logtype(devtype_entry: dict) -> tuple:
     for lt in devtype_entry.get("logtypes", []):
         name = lt["name"]
         if name == "event":
-            # event itself is selectable; subtypes prompted separately
+            # event itself is selectable; subtypes are prompted separately after selection.
+            # subtypes become filter values e.g. subtype="vpn" not standalone logtypes.
             entries.append({
                 "display":  f"{'event':<20} [{display}]",
                 "logtype":  "event",
                 "subtypes": [s["name"] for s in lt.get("logtypes", [])]
             })
         elif "logtypes" in lt:
-            # Groups like utm — children are the real selectable logtypes
+            # Groups like utm — children are the real selectable logtypes, not the group itself.
             for sub in lt["logtypes"]:
                 entries.append({
                     "display":  f"{sub['name']:<20} [{display}] (via {name})",
@@ -266,7 +281,7 @@ def prompt_logtype(devtype_entry: dict) -> tuple:
         return "traffic", ""
 
     print(f"\n  {c(Colors.BOLD, '#'):<4}  {c(Colors.BOLD, 'Log Type')}")
-    print(f"  {'─' * 4}  {'─' * 40}")
+    print(f"  {chr(9472)*4}  {chr(9472)*40}")
     for i, entry in enumerate(entries):
         print(f"  {c(Colors.YELLOW, str(i)):<4}  {entry['display']}")
 
@@ -276,10 +291,11 @@ def prompt_logtype(devtype_entry: dict) -> tuple:
     logtype  = selected["logtype"]
     extra_filter = ""
 
-    # If event selected and subtypes exist, prompt for subtype
+    # If event selected and subtypes exist, prompt for subtype.
+    # Selected subtype gets appended to the filter as subtype="system" etc.
     if logtype == "event" and selected["subtypes"]:
         print(f"\n  {c(Colors.BOLD, 'Event Subtypes')} (added as filter, press Enter to skip):")
-        print(f"  {'─' * 4}  {'─' * 30}")
+        print(f"  {chr(9472)*4}  {chr(9472)*30}")
         subtypes = selected["subtypes"]
         for i, st in enumerate(subtypes):
             print(f"  {c(Colors.YELLOW, str(i)):<4}  {st}")
@@ -323,31 +339,44 @@ def prompt_filter(extra_filter: str = "") -> str:
         key, val = raw.split("=", 1)
         raw = f'{key}="{val}"'
 
-    # Merge subtype filter from event selection with any additional user filter
+    # Merge subtype filter from event selection with any additional user filter.
     if extra_filter and raw:
         return f"{extra_filter} {raw}"
     return extra_filter or raw
 
 
-def select_devices(host: str, session: str, adom: str, devtype_entry: dict, os_type: str) -> list:
-    _header(f"Step 7 / 11 — Device Selection ({c(Colors.CYAN, adom)})")
+def prompt_export_config() -> tuple:
+    _header("Step 7 / 11 — Export Config")
+    print(
+        f"  {c(Colors.YELLOW, '1')}: JSON  {c(Colors.YELLOW, '|')}  "
+        f"{c(Colors.YELLOW, '2')}: Text")
+    fmt    = {"1": "json", "2": "text"}.get(_prompt("  Selection", "1"), "json")
+    do_zip = _prompt("  Zip output? (y/n)", "y").lower() == 'y'
+    return fmt, do_zip
 
+
+def select_devices(host: str, session: str, adom: str, devtype_entry: dict, os_type: str) -> list:
+    _header(f"Step 8 / 11 — Device Selection ({c(Colors.CYAN, adom)})")
+
+    # verbose=1 at top level ensures os_type is returned as a readable string.
     resp = _post(host, {"id": 1, "session": session, "method": "get", "verbose": 1,
                         "params": [{"url": f"/dvmdb/adom/{adom}/device",
                                     "fields": ["name", "os_type", "platform_str", "vdom"]}]})
     devices = resp["result"][0].get("data", [])
 
     devtype      = devtype_entry.get("devtype", "")
-    display_name = DEVTYPE_DISPLAY_NAMES.get(devtype, devtype_entry.get("name", devtype))
+    # product_name e.g. "FortiGate" is used to build "All_FortiGate" which FAZ accepts as a wildcard devid.
+    product_name = devtype_entry.get("name", devtype)
+    display_name = DEVTYPE_DISPLAY_NAMES.get(devtype, product_name)
 
-    # Filter using the os_type string discovered dynamically in select_device_type()
+    # Filter using the os_type string discovered dynamically in select_device_type().
     matched = [d for d in devices if d.get("os_type", "").lower() == os_type.lower()]
 
     if not matched:
         print(f"  {c(Colors.YELLOW, '[!]')} No devices found for os_type: {c(Colors.CYAN, os_type)}")
         return []
 
-    product_name = devtype_entry.get("name", devtype)
+    # Row 0 uses "All_{product_name}" e.g. "All_FortiGate" — FAZ recognises this as select-all for that type.
     rows = [{"label": f"All {display_name} Devices", "devid": f"All_{product_name}"}]
     for dev in matched:
         name         = dev.get("name", "")
@@ -360,9 +389,9 @@ def select_devices(host: str, session: str, adom: str, devtype_entry: dict, os_t
             })
 
     print(f"\n  {c(Colors.BOLD, '#'):<5} {c(Colors.BOLD, 'Device')}")
-    print(f"  {'─' * 5} {'─' * 70}")
+    print(f"  {chr(9472)*5} {chr(9472)*70}")
     for i, r in enumerate(rows):
-        tag = c(Colors.HEADER, "  ← select all") if i == 0 else ""
+        tag = c(Colors.HEADER, "  <- select all") if i == 0 else ""
         print(f"  {c(Colors.YELLOW, str(i)):<5} {r['label']}{tag}")
 
     indices = _parse_selection(_prompt("\n  Selection (e.g. 0, 1, 3-5)", "0"), len(rows) - 1)
@@ -371,21 +400,34 @@ def select_devices(host: str, session: str, adom: str, devtype_entry: dict, os_t
 
 def logsearch_run(host: str, session: str, adom: str, logtype: str, log_filter: str,
                   time_range: dict, devices: list) -> str:
-    _header(f"Step 8 / 11 — Starting Search [{c(Colors.CYAN, adom)}]")
+    _header(f"Step 9 / 11 — Starting Search [{c(Colors.CYAN, adom)}]")
     payload = {
         "id": "2", "jsonrpc": "2.0", "method": "add",
         "params": [{
-            "filter": log_filter, "logtype": logtype, "time-order": "desc",
-            "time-range": time_range, "url": f"/logview/adom/{adom}/logsearch/",
-            "device": devices, "apiver": 3
+            "case-sensitive": False,
+            "filter":         log_filter,
+            "logtype":        logtype,
+            "time-order":     "desc",
+            "time-range":     time_range,
+            "url":            f"/logview/adom/{adom}/logsearch/",
+            "device":         devices,
+            "apiver":         3
         }], "session": session
     }
     resp = _post(host, payload)
-    return resp.get("result", {}).get("tid")
+    tid  = resp.get("result", {}).get("tid")
+
+    if not tid:
+        # Print full FAZ response so we can debug exactly what went wrong.
+        print(f"  {c(Colors.RED, '[ERROR]')} Search task failed. FAZ response:")
+        print(f"  {c(Colors.YELLOW, json.dumps(resp, indent=2))}")
+    else:
+        print(f"  {c(Colors.GREEN, '+')} Search started. Task ID: {c(Colors.CYAN, str(tid))}")
+    return tid
 
 
 def logsearch_wait_for_index(host: str, session: str, adom: str, tid: str) -> int:
-    _header(f"Step 9 / 11 — Indexing Logs [{c(Colors.CYAN, adom)}]")
+    _header(f"Step 10 / 11 — Indexing Logs [{c(Colors.CYAN, adom)}]")
     while True:
         resp = _post(host, {"id": "3", "jsonrpc": "2.0", "method": "get",
                             "params": [{"url": f"/logview/adom/{adom}/logsearch/count/{tid}", "apiver": 3}],
@@ -406,7 +448,7 @@ def logsearch_wait_for_index(host: str, session: str, adom: str, tid: str) -> in
 def logsearch_stream_fetch(host: str, session: str, adom: str, tid: str,
                            matched_count: int, file_path: str, fmt: str):
     """Streams data from FAZ and writes directly to disk with clear progress printing."""
-    _header(f"Step 10 / 11 — Downloading Data [{c(Colors.CYAN, adom)}]")
+    _header(f"Step 11 / 11 — Downloading Data [{c(Colors.CYAN, adom)}]")
     PAGE, offset, total_downloaded = 1000, 0, 0
 
     # Pre-fetch headers for CSV
@@ -460,61 +502,89 @@ def logsearch_stream_fetch(host: str, session: str, adom: str, tid: str,
 
 def main():
     _header("FAZ Log Fetcher")
-    host = _prompt("FAZ IP")
-    user = _prompt("Admin Username", "admin")
+    host = _prompt("FAZ IP", allow_back=False)
+    user = _prompt("Admin Username", "admin", allow_back=False)
     pw   = read_password(f"  {c(Colors.BLUE, f'Password for {user}')}: ")
     session = login(host, user, pw)
 
     try:
         while True:
-            adoms                         = select_adoms(host, session)
-            devtype_entry, chosen_os_type = select_device_type(host, session, adoms[0])
-            ltype, extra_filter           = prompt_logtype(devtype_entry)
-            trange                        = prompt_time_range()
-            lfilter                       = prompt_filter(extra_filter)
+            # State holders — reset at the start of each full run.
+            adoms = devtype_entry = chosen_os_type = None
+            ltype = extra_filter = trange = lfilter = None
+            fmt = do_zip = None
 
-            _header("Step 11 / 11 — Export Config")
-            print(
-                f"  {c(Colors.YELLOW, '1')}: JSON  {c(Colors.YELLOW, '|')}  "
-                f"{c(Colors.YELLOW, '2')}: Text")
-            fmt    = {"1": "json", "2": "text"}.get(_prompt("  Selection", "1"), "json")
-            do_zip = _prompt("  Zip output? (y/n)", "y").lower() == 'y'
+            # Step loop — step index controls which function runs.
+            # BackSignal decrements step to go back; success increments to advance.
+            step = 0
+            while step < 6:
+                try:
+                    if step == 0:
+                        adoms = select_adoms(host, session)
 
-            for adom in adoms:
-                devs = select_devices(host, session, adom, devtype_entry, chosen_os_type)
-                if not devs:
-                    continue
+                    elif step == 1:
+                        devtype_entry, chosen_os_type = select_device_type(host, session, adoms[0])
 
-                tid = logsearch_run(host, session, adom, ltype, lfilter, trange, devs)
-                if tid:
-                    matched = logsearch_wait_for_index(host, session, adom, tid)
+                    elif step == 2:
+                        ltype, extra_filter = prompt_logtype(devtype_entry)
 
-                    if matched == 0:
-                        print(f"  {c(Colors.YELLOW, '[!]')} No logs found for this criteria.")
+                    elif step == 3:
+                        trange = prompt_time_range()
+
+                    elif step == 4:
+                        # extra_filter carries the event subtype e.g. subtype="system" from step 2.
+                        lfilter = prompt_filter(extra_filter)
+
+                    elif step == 5:
+                        fmt, do_zip = prompt_export_config()
+
+                        # Device selection and search run per ADOM after all config is collected.
+                        for adom in adoms:
+                            devs = select_devices(host, session, adom, devtype_entry, chosen_os_type)
+                            if not devs:
+                                continue
+
+                            tid = logsearch_run(host, session, adom, ltype, lfilter, trange, devs)
+                            if tid:
+                                matched = logsearch_wait_for_index(host, session, adom, tid)
+
+                                if matched == 0:
+                                    print(f"  {c(Colors.YELLOW, '[!]')} No logs found for this criteria.")
+                                else:
+                                    confirm = _prompt(
+                                        f"  Proceed to download {c(Colors.BOLD + Colors.CYAN, f'{matched:,}')} logs? (y/n)", "y"
+                                    )
+                                    if confirm.lower() == 'y':
+                                        os.makedirs("logs", exist_ok=True)
+                                        ts            = datetime.now().strftime('%Y%m%d_%H%M%S')
+                                        ext           = "json" if fmt == "json" else "txt"
+                                        filename_base = f"logs/faz_{adom}_{ltype}_{ts}"
+                                        full_path     = f"{filename_base}.{ext}"
+
+                                        logsearch_stream_fetch(host, session, adom, tid, matched, full_path, fmt)
+
+                                        if do_zip:
+                                            with zipfile.ZipFile(f"{filename_base}.zip", 'w', zipfile.ZIP_DEFLATED) as z:
+                                                z.write(full_path, os.path.basename(full_path))
+                                            os.remove(full_path)
+                                            print(f"  {c(Colors.GREEN, '+')} Zipped: {c(Colors.BOLD + Colors.CYAN, f'{filename_base}.zip')}")
+                                        else:
+                                            print(f"  {c(Colors.GREEN, '+')} Saved: {c(Colors.BOLD + Colors.CYAN, full_path)}")
+
+                                # Always clean up the search task on FAZ regardless of download choice.
+                                _post(host, {"id": 1, "method": "delete",
+                                             "params": [{"url": f"/logview/adom/{adom}/logsearch/{tid}", "apiver": 3}],
+                                             "session": session})
+
+                    step += 1  # advance to next step only on success
+
+                except BackSignal:
+                    if step == 0:
+                        # Already at the first step — cannot go further back.
+                        print(f"  {c(Colors.YELLOW, '[!]')} Already at first step.")
                     else:
-                        confirm = _prompt(
-                            f"  Proceed to download {c(Colors.BOLD + Colors.CYAN, f'{matched:,}')} logs? (y/n)", "y"
-                        )
-                        if confirm.lower() == 'y':
-                            os.makedirs("logs", exist_ok=True)
-                            ts            = datetime.now().strftime('%Y%m%d_%H%M%S')
-                            ext           = "json" if fmt == "json" else "txt"
-                            filename_base = f"logs/faz_{adom}_{ltype}_{ts}"
-                            full_path     = f"{filename_base}.{ext}"
-
-                            logsearch_stream_fetch(host, session, adom, tid, matched, full_path, fmt)
-
-                            if do_zip:
-                                with zipfile.ZipFile(f"{filename_base}.zip", 'w', zipfile.ZIP_DEFLATED) as z:
-                                    z.write(full_path, os.path.basename(full_path))
-                                os.remove(full_path)
-                                print(f"  {c(Colors.GREEN, '+')} Zipped: {c(Colors.BOLD + Colors.CYAN, f'{filename_base}.zip')}")
-                            else:
-                                print(f"  {c(Colors.GREEN, '+')} Saved: {c(Colors.BOLD + Colors.CYAN, full_path)}")
-
-                    _post(host, {"id": 1, "method": "delete",
-                                 "params": [{"url": f"/logview/adom/{adom}/logsearch/{tid}", "apiver": 3}],
-                                 "session": session})
+                        print(f"  {c(Colors.CYAN, chr(8617))}  Going back...")
+                        step -= 1  # decrement to re-run the previous step
 
             if _prompt("\n  Fetch more logs? (y/n)", "n").lower() != 'y':
                 break
