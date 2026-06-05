@@ -4,23 +4,6 @@ Python utilities for FortiAnalyzer automation, log retrieval, log file downloads
 
 This repository contains practical scripts for working with FortiAnalyzer APIs from a terminal. The tools are useful for support, troubleshooting, log collection, auditing, and quick visibility into FortiAnalyzer system health.
 
-## Repository Contents
-
-```text
-FortiAnalyzer_Py/
-├── FAZ_Log_Fetcher/
-│   ├── faz-log-fetcher.py
-│   └── readme.md
-├── FAZ_Log_Files_Downloader/
-│   ├── faz_log_downloader.py
-│   └── readme.md
-├── Performance_Monitor/
-│   ├── faz_perf_monitor.py
-│   ├── faz_config.example.ini
-│   ├── requirements.txt
-│   └── readme.md
-└── LICENSE
-```
 
 ## Requirements
 
