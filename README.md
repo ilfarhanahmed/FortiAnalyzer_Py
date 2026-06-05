@@ -41,9 +41,8 @@ For production or customer environments, it is recommended to enable SSL verific
 
 ## Author
 
-**Farhan Ahmed**  
+***Farhan Ahmed***  
 Website: [www.farhan.ch](https://www.farhan.ch)  
-GitHub: [@ilfarhanahmed](https://github.com/ilfarhanahmed)
 GitHub: [@ilfarhanahmed](https://github.com/ilfarhanahmed)
 Postman: [@ilfarhanahmed](https://postman.com/ilfarhanahmed)
 
