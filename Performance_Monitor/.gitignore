@@ -1,0 +1,13 @@
+# Local FAZ config with real API key
+faz_config.ini
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# OS / IDE
+.DS_Store
+.idea/
+.vscode/
